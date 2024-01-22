@@ -1,0 +1,229 @@
+@echo off
+set ver=1.1
+mode con cols=120 lines=15
+
+:CheckUAC
+>nul 2>&1 "%SYSTEMROOT%\system32\cacls.exe" "%SYSTEMROOT%\system32\config\system"
+if '%errorlevel%' NEQ '0' (
+    echo 관리자권한 가져 오는중...
+    goto GetUAC
+) else ( goto menu )
+
+:GetUAC
+echo Set UAC = CreateObject^("Shell.Application"^) > "%temp%\getadmin.vbs"
+set params = %*:"=""
+echo UAC.ShellExecute "cmd.exe", "/c %~s0 %params%", "", "runas", 1 >> "%temp%\getadmin.vbs"
+"%temp%\getadmin.vbs"
+del "%temp%\getadmin.vbs"
+exit /B
+
+cls
+:menu
+title 윈도우 최적화 %ver%
+echo =============================================================================================================
+echo   0 - 모두 최적화
+echo   1 - 엣지 업데이트 차단
+echo   2 - 디펜더 비활성
+echo   3 - 빠릿하게
+echo   (CPU 고정밀 타이머OFF + 부팅 메모리 로딩 OFF + 네트워크 대역 해제 + 스케쥴러 최적화 + 절전 OFF + 고성능)
+echo   4 - 윈도우 업데이트 OFF
+echo   5 - 윈도우 앱 삭제
+echo   (Cotana, Skype, Serch, Xbox, News, Music, Map, Solita, People, 3D Builder, Get Started, Finance, Sports)
+echo   6 - 디스크 정리
+echo =============================================================================================================
+set menu=
+set /p menu= 선택하세요  :
+if "%menu%" == "0" goto All
+if "%menu%" == "1" goto Defence
+if "%menu%" == "2" goto Edge
+if "%menu%" == "3" goto Cpu
+if "%menu%" == "4" goto Winupdate
+if "%menu%" == "5" goto Apps
+if "%menu%" == "6" goto Clean
+rem if "%menu%" == "4" goto Prefetch / if "%menu%" == "5" goto Network / if "%menu%" == "6" goto Scheduler / if "%menu%" == "7" goto PowerSave
+goto main
+
+:all
+
+:Defence
+windowsdefender://AppBrowser
+Reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows Defender" /v "DisableAntiSpyware" /t REG_DWORD /d "1" /f
+Reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows Defender\Real-Time Protection" /v "DisableBehaviorMonitoring" /t REG_DWORD /d "1" /f
+Reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows Defender\Real-Time Protection" /v "DisableOnAccessProtection" /t REG_DWORD /d "1" /f
+Reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows Defender\Real-Time Protection" /v "DisableScanOnRealtimeEnable" /t REG_DWORD /d "1" /f
+
+:Edge
+schtasks /change /disable /tn "\MicrosoftEdgeUpdateTaskMachineCore"
+schtasks /change /disable /tn "\MicrosoftEdgeUpdateTaskMachineUA"
+sc stop edgeupdate
+sc config edgeupdate start=disabled
+sc stop edgeupdatem
+sc config edgeupdatem start=disabled
+
+echo 엣지 브라우저 업데이트 비활성 강제
+powershell Get-ItemPropertyValue -Path 'HKCU:\SOFTWARE\Microsoft\Edge\BLBeacon' -Name "version"
+set /p edge= Edge Version ? :
+rd /s/q "%ProgramFiles(x86)%\Microsoft\EdgeCore"
+ren "%ProgramFiles(x86)%\Microsoft\EdgeUpdate\microsoftedgeupdate.exe" microsoftedgeupdate.exe.bak
+ren "%ProgramFiles(x86)%\Microsoft\edge\Application\%edge%\BHO" BHO.bak
+ren "%ProgramFiles(x86)%\Microsoft\edge\Application\%edge%\Installer" Installer.bak
+ren "%ProgramFiles(x86)%\Microsoft\EdgeWebView\Application\%edge%\BHO" BHO.bak
+ren "%ProgramFiles(x86)%\Microsoft\EdgeWebView\Application\%edge%\Installer" Installer.bak
+set /p menu= ( 계속 - 1 / 메뉴 - 2 ) :
+if "%menu%" == "1" goto PowerSave
+if "%menu%" == "2" goto menu
+
+:Cpu
+bcdedit /set disabledynamictick yes
+bcdedit /deletevalue useplatformclock
+
+:Prefetch
+schtasks /change /disable /tn "\Microsoft\Windows\Sysmain\HybridDriveCachePrepopulate"
+schtasks /change /disable /tn "\Microsoft\Windows\Sysmain\HybridDriveCacheRebalance"
+schtasks /change /disable /tn "\Microsoft\Windows\Sysmain\ResPriStaticDbSync"
+schtasks /change /disable /tn "\Microsoft\Windows\Sysmain\WsSwapAssessmentTask"
+sc stop sysmain
+sc config SysMain start=disabled
+sc stop WSearch
+sc config WSearch start=disabled
+del /f/s/q *.pf *.7db *.mkd *.ebd *.ini *.bin
+
+:Network
+rem 네트워크 최적화
+REG ADD HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\MSMQ\Parameters /v TCPNoDelay /t REG_DWORD /d 0000001 /f
+REG ADD HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\MSMQ\Parameters /v EnableICMPRedirect /t REG_DWORD /d 00000000 /f
+for /f %%i in ('wmic path win32_networkadapter get GUID ^| findstr "{"') do REG ADD "HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\%%i" /v TcpAckFrequency /t REG_DWORD /d 0000001 /f
+for /f %%i in ('wmic path win32_networkadapter get GUID ^| findstr "{"') do REG ADD "HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\%%i" /v TcpDelAckTicks /t REG_DWORD /d 0000000 /f
+for /f %%i in ('wmic path win32_networkadapter get GUID ^| findstr "{"') do REG ADD "HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\%%i" /v TCPNoDelay /t REG_DWORD /d 0000001 /f
+REG ADD "HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters" /v "EnableTCPA" /t REG_DWORD /d "1" /f
+REG ADD "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\MSMQ\Parameters" /v "TCPNoDelay" /t REG_DWORD /d "1" /f
+REG ADD "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\MSMQ\Parameters\Security" /v "SecureDSCommunication" /t REG_DWORD /d "0" /f
+REG ADD "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" /v "NetworkThrottlingIndex" /t REG_DWORD /d "4294967295" /f
+REG ADD "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" /v "SystemResponsiveness" /t REG_DWORD /d "0" /f
+rem TCP/IP 대역폭 해제
+netsh int tcp set global rss=enabled
+netsh int tcp set global autotuninglevel=highlyrestricted
+netsh int tcp set global ecncapability=disabled
+netsh int tcp set global timestamps=disabled
+netsh int tcp set global dca=enabled
+netsh int tcp set global netdma=enabled
+netsh int tcp set global fastopen=enabled
+netsh int tcp set supplemental Internet congestionprovider=CTCP
+regsvr32 /s actxprxy.dll
+ipconfig /flushdns
+fsutil behavior set disabledeletenotify 0
+
+:Scheduler
+schtasks /change /disable /tn "\Microsoft\Windows\Application Experience\MareBackup"
+schtasks /change /disable /tn "\Microsoft\Windows\Application Experience\Microsoft Compatibility Appraiser"
+schtasks /change /disable /tn "\Microsoft\Windows\Application Experience\PcaPatchDbTask"
+schtasks /change /disable /tn "\Microsoft\Windows\Application Experience\ProgramDataUpdater"
+schtasks /change /disable /tn "\Microsoft\Windows\Application Experience\StartupAppTask"
+schtasks /change /disable /tn "\Microsoft\Windows\ApplicationData\appuriverifierdaily"
+schtasks /change /disable /tn "\Microsoft\Windows\ApplicationData\appuriverifierinstall"
+schtasks /change /disable /tn "\Microsoft\Windows\ApplicationData\CleanupTemporaryState"
+schtasks /change /disable /tn "\Microsoft\Windows\ApplicationData\DsSvcCleanup"
+schtasks /change /disable /tn "\Microsoft\Windows\AppListBackup\Backup"
+schtasks /change /disable /tn "\Microsoft\Windows\AppListBackup\BackupNonMaintenance"
+schtasks /change /disable /tn "\Microsoft\Windows\Bluetooth\UninstallDeviceTask"
+schtasks /change /disable /tn "\Microsoft\Windows\CloudExperienceHost\CreateObjectTask"
+schtasks /change /disable /tn "\Microsoft\Windows\CloudRestore\Backup"
+schtasks /change /disable /tn "\Microsoft\Windows\Customer Experience Improvement Program\Consolidator"
+schtasks /change /disable /tn "\Microsoft\Windows\Customer Experience Improvement Program\UsbCeip"
+schtasks /change /disable /tn "\Microsoft\Windows\Data Integrity Scan\Data Integrity Check And Scan"
+schtasks /change /disable /tn "\Microsoft\Windows\Data Integrity Scan\Data Integrity Check And Scan"
+schtasks /change /disable /tn "\Microsoft\Windows\Data Integrity Scan\Data Integrity Scan"
+schtasks /change /disable /tn "\Microsoft\Windows\Data Integrity Scan\Data Integrity Scan for Crash Recovery"
+schtasks /change /disable /tn "\Microsoft\Windows\Defrag\ScheduledDefrag"
+schtasks /change /disable /tn "\Microsoft\Windows\DiskDiagnostic\Microsoft-Windows-DiskDiagnosticDataCollector"
+schtasks /change /disable /tn "\Microsoft\Windows\DiskDiagnostic\Microsoft-Windows-DiskDiagnosticResolver"
+schtasks /change /disable /tn "\Microsoft\Windows\Feedback\Siuf\DmClient"
+schtasks /change /disable /tn "\Microsoft\Windows\Feedback\Siuf\DmClientOnScenarioDownload"
+schtasks /change /disable /tn "\Microsoft\Windows\Location\Notifications"
+schtasks /change /disable /tn "\Microsoft\Windows\Location\WindowsActionDialog"
+schtasks /change /disable /tn "\Microsoft\Windows\Maintenance\WinSAT"
+schtasks /change /disable /tn "\Microsoft\Windows\Management\Provisioning\Cellular"
+schtasks /change /disable /tn "\Microsoft\Windows\Management\Provisioning\Logon"
+schtasks /change /disable /tn "\Microsoft\Windows\Management\Provisioning\Retry"
+schtasks /change /disable /tn "\Microsoft\Windows\Management\Provisioning\RunOnReboot"
+schtasks /change /disable /tn "\Microsoft\Windows\Maps\MapsToastTask"
+schtasks /change /disable /tn "\Microsoft\Windows\Maps\MapsUpdateTask"
+schtasks /change /disable /tn "\Microsoft\Windows\Mobile Broadband Accounts\MNO Metadata Parser"
+schtasks /change /disable /tn "\Microsoft\Windows\RetailDemo\CleanupOfflineContent"
+schtasks /change /disable /tn "\Microsoft\Windows\Work Folders\Work Folders Logon Synchronization "
+schtasks /change /disable /tn "\Microsoft\Windows\Work Folders\Work Folders Maintenance Work"
+schtasks /change /disable /tn "\Microsoft\Windows\Workplace Join\Automatic-Device-Join"
+schtasks /change /disable /tn "\Microsoft\Windows\Workplace Join\Device-Sync"
+schtasks /change /disable /tn "\Microsoft\Windows\Workplace Join\Recovery-Check"
+schtasks /change /disable /tn "\Microsoft\XblGameSave\XblGameSaveTask"
+schtasks /change /disable /tn "\Microsoft\Windows\Windows Defender\Windows Defender Cache Maintenance"
+schtasks /change /disable /tn "\Microsoft\Windows\Windows Defender\Windows Defender Cleanup"
+schtasks /change /disable /tn "\Microsoft\Windows\Windows Defender\Windows Defender Scheduled Scan"
+schtasks /change /disable /tn "\Microsoft\Windows\Windows Defender\Windows Defender Verification"
+schtasks /change /disable /tn "\Microsoft\Windows\Windows Media Sharing\UpdateLibrary"
+
+:PowerSave
+powercfg -h off
+powercfg -SETACTIVE 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c
+powercfg /Change /standby-timeout-ac 0
+powercfg /Change /disk-timeout-ac 0
+set /p menu= ( 계속 - 1 / 메뉴 - 2 ) :
+if "%menu%" == "1" goto WinUpdate
+if "%menu%" == "2" goto menu
+
+:WinUpdate
+schtasks /change /disable /tn "\Microsoft\Windows\WindowsUpdate\Refresh Group Policy Cache"
+schtasks /change /disable /tn "\Microsoft\Windows\WindowsUpdate\Scheduled Start"
+schtasks /change /disable /tn "\Microsoft\Windows\WindowsUpdate\RUXIM\PLUGScheduler"
+sc stop wuauserv
+sc config wuauserv start=demand
+rem 에러 레포트 수집 비활성
+schtasks /change /disable /tn "\Microsoft\Windows\Windows Error Reporting\QueueReporting"
+sc stop WerSvc
+rem MS 정보 수집 전송 비활성
+reg add "HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows\DataCollection" /v "AllowTelemetry" /t REG_DWORD /d "0" /f
+rem 윈도우 업뎃 후 캐시 제거
+sc stop bits
+sc stop msiserver
+rd /s/q "C:\Windows\SoftwareDistribution"
+rd /s/q "C:\Windows\System32\catroot2"
+rd /s/q "C:\WINDOWS\Temp"
+sc start bits
+sc start msiserver
+set /p menu= ( 계속 - 1 / 메뉴 - 2 ) :
+if "%menu%" == "1" goto Apps
+if "%menu%" == "2" goto menu
+
+:Apps
+powershell "Get-AppxPackage Microsoft.549981C3F5F10 | Remove-AppxPackage"
+powershell "Get-AppxPackage *skypeapp* | Remove-AppxPackage"
+powershell "Get-AppxPackage *Windows.Search* | Remove-AppxPackage"
+powershell "Get-AppxPackage *Xbox* | Remove-AppxPackage"
+powershell "Get-AppxPackage *bingnews* | Remove-AppxPackage"
+powershell "Get-AppxPackage *zunemusic* | Remove-AppxPackage "
+powershell "Get-AppxPackage *windowsmaps* | Remove-AppxPackage"
+powershell "Get-AppxPackage *solitairecollection* | Remove-AppxPackage"
+powershell "Get-AppxPackage *people* | Remove-AppxPackage"
+powershell "Get-AppxPackage *3dbuilder* | Remove-AppxPackage"
+powershell "Get-AppxPackage *officehub* | Remove-AppxPackage"
+powershell "Get-AppxPackage *getstarted* | Remove-AppxPackage"
+powershell "Get-AppxPackage *bingfinance* | Remove-AppxPackage"
+powershell "Get-AppxPackage *bingsports* | Remove-AppxPackage"
+set /p menu= ( 계속 - 1 / 메뉴 - 2 ) :
+if "%menu%" == "1" goto Clean
+if "%menu%" == "2" goto menu
+
+:Clean
+rd /s/q c:\temp
+rd /s/q %windir%\Temp
+rd /s/q %windir%\CbsTemp
+del /f/s/q %LocalAppData%\Microsoft\Windows\Explorer\*.db
+rem 저장 공간 최대 정리
+dism /online /Cleanup-Image /StartComponentCleanup
+dism /online /Cleanup-Image /StartComponentCleanup /ResetBase
+dism  /online /Cleanup-Image /SPSuperseded
+set /p menu= ( 종료 - 1 / 메뉴 - 2 ) :
+if "%menu%" == "1" goto end
+if "%menu%" == "2" goto menu
+
+:end
